@@ -1,4 +1,4 @@
-# Python Data Engineering Lab
+# Python Data Engineering Lab : RAMDANI Nabil & EL MAIMOUNI Kenza
 
 This project implements a data engineering pipeline that transforms semi-structured JSON/JSONL data into
 analytics-ready datasets and validates their usability through lightweight dashboarding.
@@ -64,7 +64,7 @@ Final dataset structures:
 - Apps Reviews: `app_id`, `app_name`, `reviewId`, `userName`, `score`, `content`, `thumbsUpCount`, `at`
 
 Implementation:
-- `src/transform_b2.py`
+- `src/transform.py`
 
 ---
 
