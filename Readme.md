@@ -111,8 +111,6 @@ demonstrates a clear separation between data engineering and data consumption.
 
 ## C. Pipeline Changes and Stress Testing
 
-In this step, the pipeline was run against several modified versions of the upstream datasets to expose hidden assumptions and structural fragilities.
-
 ---
 
 ### C.1 – New Reviews Batch
