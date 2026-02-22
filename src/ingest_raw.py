@@ -1,10 +1,4 @@
-"""
-ingest_raw.py
-Data Acquisition and Ingestion Script
-Extracts AI note-taking apps metadata and reviews from Google Play Store
-"""
-
-from google_play_scraper import app, search, reviews_all
+from google_play_scraper import app, search, reviews  # ← reviews_all remplacé par reviews
 import json
 from pathlib import Path
 from typing import List, Dict
@@ -14,7 +8,8 @@ from datetime import datetime
 # Configuration
 DATA_RAW_DIR = Path("data/raw")
 SEARCH_QUERY = "AI note taking"
-MAX_APPS = 20  # Adjust based on how much data you want
+MAX_APPS = 20           # Adjust based on how much data you want
+REVIEWS_BATCH_SIZE = 100  # Nombre de reviews récupérées par page
 
 def setup_directories():
     """Create necessary directories if they don't exist"""
@@ -122,75 +117,99 @@ def extract_apps_metadata(app_ids: List[str]) -> List[Dict]:
     print(f"\n✓ Successfully extracted {len(apps_data)} apps metadata")
     return apps_data
 
-def extract_app_reviews(app_id: str, app_name: str = None) -> List[Dict]:
+def extract_app_reviews_paginated(app_id: str, filepath: Path, app_name: str = None) -> int:
     """
-    Extract all reviews for a single app
+    Extract reviews for a single app using pagination and write directly to file (append mode).
+    This avoids hitting rate limits and prevents data loss if the script crashes mid-run.
     
     Args:
         app_id: Google Play Store app ID
+        filepath: Path to the JSONL file to append reviews to
         app_name: Optional app name for logging
     
     Returns:
-        List of review dictionaries
+        Total number of reviews extracted for this app
     """
     display_name = app_name if app_name else app_id
-    
-    try:
-        print(f"  Extracting reviews for: {display_name}")
-        
-        result = reviews_all(
-            app_id,
-            sleep_milliseconds=0,
-            lang='en',
-            country='us'
-        )
-        
-        # Add app_id to each review and convert datetime objects
-        for review in result:
-            review['app_id'] = app_id
-            if app_name:
-                review['app_name'] = app_name
-            # Convert datetime objects in the review
-            review = convert_datetime_to_string(review)
-        
-        # Convert the entire list to ensure all datetime objects are strings
-        result = convert_datetime_to_string(result)
-        
-        print(f"    ✓ Extracted {len(result)} reviews")
-        return result
-    
-    except Exception as e:
-        print(f"    ✗ Error extracting reviews: {e}")
-        return []
+    print(f"  Extracting reviews for: {display_name}")
 
-def extract_all_reviews(apps_data: List[Dict]) -> List[Dict]:
+    total = 0
+    continuation_token = None  # Premier appel sans token
+
+    try:
+        while True:
+            # Récupère un batch de reviews (avec ou sans token de continuation)
+            batch, continuation_token = reviews(
+                app_id,
+                lang='en',
+                country='us',
+                count=REVIEWS_BATCH_SIZE,
+                continuation_token=continuation_token
+            )
+
+            if not batch:
+                break  # Plus de reviews disponibles
+
+            # Enrichir et convertir chaque review du batch
+            for review in batch:
+                review['app_id'] = app_id
+                if app_name:
+                    review['app_name'] = app_name
+                review = convert_datetime_to_string(review)
+
+                # ✅ Écriture en append immédiatement : pas de perte de données si crash
+                with open(filepath, 'a', encoding='utf-8') as f:
+                    json.dump(review, f, ensure_ascii=False)
+                    f.write('\n')
+
+            total += len(batch)
+            print(f"    ... {total} reviews récupérées jusqu'ici")
+
+            # Pas de token → on a tout récupéré
+            if not continuation_token:
+                break
+
+            # Be respectful to the API
+            time.sleep(1)
+
+    except Exception as e:
+        print(f"    ✗ Error extracting reviews for {display_name}: {e}")
+
+    print(f"    ✓ Total extrait pour {display_name} : {total} reviews")
+    return total
+
+def extract_all_reviews(apps_data: List[Dict], filepath: Path) -> int:
     """
-    Extract reviews for all apps
+    Extract reviews for all apps using pagination, writing directly to file in append mode.
     
     Args:
         apps_data: List of app metadata dictionaries
+        filepath: Path to the JSONL output file
     
     Returns:
-        List of all reviews from all apps
+        Total number of reviews extracted across all apps
     """
     print(f"\n💬 Extracting reviews for {len(apps_data)} apps...")
-    
-    all_reviews = []
-    
+
+    # On repart d'un fichier vide à chaque nouvelle ingestion complète
+    filepath.write_text("")
+
+    total_reviews = 0
+
     for i, app_data in enumerate(apps_data, 1):
         app_id = app_data.get('appId')
         app_name = app_data.get('title')
-        
-        print(f"  [{i}/{len(apps_data)}] App: {app_name}")
-        
-        reviews = extract_app_reviews(app_id, app_name)
-        all_reviews.extend(reviews)
-        
-        # Be respectful to the API
+
+        print(f"\n  [{i}/{len(apps_data)}] App: {app_name}")
+
+        count = extract_app_reviews_paginated(app_id, filepath, app_name)
+        total_reviews += count
+
+        # Be respectful to the API between apps
         time.sleep(1)
-    
-    print(f"\n✓ Total reviews extracted: {len(all_reviews)}")
-    return all_reviews
+
+    print(f"\n✓ Total reviews extracted: {total_reviews}")
+    return total_reviews
 
 def save_to_jsonl(data: List[Dict], filepath: Path):
     """
@@ -254,14 +273,11 @@ def main():
     apps_file = DATA_RAW_DIR / "note_taking_ai_apps.jsonl"
     save_to_jsonl(apps_data, apps_file)
     
-    # Step 5: Extract reviews
-    all_reviews = extract_all_reviews(apps_data)
+    # Step 5: Extract reviews avec pagination + écriture en append dans la boucle
+    reviews_file = DATA_RAW_DIR / "note_taking_ai_reviews.jsonl"
+    total_reviews = extract_all_reviews(apps_data, reviews_file)
     
-    # Step 6: Save reviews
-    if all_reviews:
-        reviews_file = DATA_RAW_DIR / "note_taking_ai_reviews.jsonl"
-        save_to_jsonl(all_reviews, reviews_file)
-    else:
+    if total_reviews == 0:
         print("\n⚠ Warning: No reviews were extracted")
     
     # Summary
@@ -269,7 +285,7 @@ def main():
     print("INGESTION COMPLETE")
     print("="*60)
     print(f"Apps extracted: {len(apps_data)}")
-    print(f"Reviews extracted: {len(all_reviews)}")
+    print(f"Reviews extracted: {total_reviews}")
     print(f"\nFiles saved in: {DATA_RAW_DIR}")
     print("="*60)
 
