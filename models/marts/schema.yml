@@ -1,0 +1,63 @@
+version: 2
+
+models:
+  - name: dim_apps
+    description: "Dimension apps"
+    columns:
+      - name: app_key
+        data_tests:
+          - not_null
+          - unique
+      - name: app_id
+        data_tests:
+          - not_null
+
+  - name: dim_categories
+    description: "Dimension categories"
+    columns:
+      - name: category_key
+        data_tests:
+          - not_null
+          - unique
+      - name: category_name
+        data_tests:
+          - not_null
+
+  - name: dim_developers
+    description: "Dimension developers"
+    columns:
+      - name: developer_key
+        data_tests:
+          - not_null
+          - unique
+
+  - name: dim_date
+    description: "Dimension date"
+    columns:
+      - name: date_key
+        data_tests:
+          - not_null
+          - unique
+
+  - name: fact_reviews
+    description: "Table de faits reviews"
+    columns:
+      - name: review_id
+        data_tests:
+          - not_null
+          - unique
+      - name: rating
+        data_tests:
+          - not_null
+      - name: app_key
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_apps')
+              field: app_key
+      - name: date_key
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date_key
